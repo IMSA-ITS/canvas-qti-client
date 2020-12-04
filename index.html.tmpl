@@ -1,0 +1,19 @@
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Main</title>
+  <script src="elm.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/purecss@2.0.3/build/pure-min.css" >
+</head>
+
+<body>
+  <div id="myapp"></div>
+  <script>
+   var params = $params;
+   var app = Elm.Main.init({
+       node: document.getElementById('myapp'),
+       flags: params
+   });
+  </script>
+</body>
+</html>
