@@ -22,10 +22,10 @@ type alias Flags =
 
 type alias Model =
     { flags : Flags
-    , rawText : String
-    , settledText : String
-    , debouncer : Debounce.Model String
-    , qtiError : WebData String
+    , rawText : String -- input from user
+    , settledText : String -- debounced/settled input
+    , debouncer : Debounce.Model String -- state of debounce
+    , qtiError : WebData String -- error from QTI generation
     }
 
 
@@ -83,6 +83,10 @@ update msg model =
                     ( model, Cmd.none )
 
 
+
+{- When the input text settles, return command to request QTI generation -}
+
+
 updateDebouncer : Debounce.Msg String -> Model -> ( Model, Cmd Msg )
 updateDebouncer dmsg model =
     let
@@ -107,6 +111,10 @@ qtiServerUrl =
     "http://127.0.0.1:5000/validate"
 
 
+
+{- request validation only -}
+
+
 requestQTI : String -> Cmd Msg
 requestQTI text =
     Http.request
@@ -118,6 +126,10 @@ requestQTI text =
         , timeout = Nothing
         , tracker = Nothing
         }
+
+
+
+-- Request to generate and download zip archive of QTI content
 
 
 requestGenerate : String -> Cmd Msg
@@ -136,6 +148,13 @@ requestGenerate text =
 decodeQTIResponse : D.Decoder String
 decodeQTIResponse =
     D.field "error" D.string
+
+
+
+{- Because we want the raw bytes from the response, we seem to need this custom
+   handler as there does not seem to be a Bytes.Decoder that is just the identity
+   function.
+-}
 
 
 handleGenerateResponse : Http.Response Bytes -> Result Http.Error Bytes
