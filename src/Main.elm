@@ -5,7 +5,7 @@ module Main exposing (Model)
 import Browser
 import Debounce
 import Html exposing (Html, button, div, text)
-import Html.Attributes exposing (cols, rows)
+import Html.Attributes exposing (class, cols, rows)
 import Html.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as D
@@ -21,12 +21,15 @@ type alias Model =
     , rawText : String
     , settledText : String
     , debouncer : Debounce.Model String
+    , qtiError : WebData String
     }
 
 
 type Msg
     = TextChanged String
     | DebouncerMsg (Debounce.Msg String)
+    | GotQTI (WebData String)
+    | GenerateClicked
 
 
 main : Program Flags Model Msg
@@ -41,7 +44,14 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { flags = flags, rawText = "", settledText = "", debouncer = Debounce.init 500 "" }, Cmd.none )
+    ( { flags = flags
+      , rawText = ""
+      , settledText = ""
+      , debouncer = Debounce.init 1000 ""
+      , qtiError = NotAsked
+      }
+    , Cmd.none
+    )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -53,6 +63,13 @@ update msg model =
         DebouncerMsg dmsg ->
             updateDebouncer dmsg model
 
+        GotQTI error ->
+            ( { model | qtiError = error }, Cmd.none )
+
+        GenerateClicked ->
+            ( model, requestGenerate model.settledText )
+
+
 updateDebouncer : Debounce.Msg String -> Model -> ( Model, Cmd Msg )
 updateDebouncer dmsg model =
     let
@@ -61,11 +78,51 @@ updateDebouncer dmsg model =
 
         debouncedInput_ =
             settledMaybe |> Maybe.withDefault model.settledText
+
+        requestCmd =
+            settledMaybe |> Maybe.map requestQTI |> Maybe.withDefault Cmd.none
     in
     ( { model | debouncer = debouncer_, settledText = debouncedInput_ }
-    , Cmd.map DebouncerMsg cmd
+    , Cmd.batch
+        [ Cmd.map DebouncerMsg cmd
+        , requestCmd
+        ]
     )
 
+
+qtiServerUrl =
+    "http://127.0.0.1:5000/validate"
+
+
+requestQTI : String -> Cmd Msg
+requestQTI text =
+    Http.request
+        { method = "POST"
+        , url = qtiServerUrl
+        , body = Http.stringBody "text/plain" text
+        , expect = Http.expectJson (fromResult >> GotQTI) decodeQTIResponse
+        , headers = []
+        , timeout = Nothing
+        , tracker = Nothing
+        }
+
+
+requestGenerate : String -> Cmd Msg
+requestGenerate text =
+    Http.request
+        { method = "POST"
+        , url = qtiServerUrl ++ "?generate"
+        , body = Http.stringBody "text/plain" text
+        , expect = Http.expectJson (fromResult >> GotQTI) decodeQTIResponse
+        , headers = []
+        , timeout = Nothing
+        , tracker = Nothing
+        }
+
+
+decodeQTIResponse : D.Decoder String
+decodeQTIResponse =
+    D.field "error" D.string
 
 
 view : Model -> Browser.Document Msg
@@ -73,8 +130,41 @@ view model =
     { title = "QTI Generator"
     , body =
         [ div []
-            [ div [] [ text (Debug.toString model) ]
-            , Html.textarea [ onInput TextChanged, cols 80, rows 10 ] []
+            [ Html.textarea [ onInput TextChanged, cols 80, rows 10 ] []
+            , viewResponse model.qtiError
+            , generateButton model
+
+            -- , div [] [ text (Debug.toString model) ]
             ]
         ]
     }
+
+
+viewResponse : WebData String -> Html msg
+viewResponse response =
+    let
+        viewError error =
+            case error of
+                "" ->
+                    div [] [ text "OK" ]
+
+                _ ->
+                    div [ class "error" ] [ text error ]
+    in
+    case response of
+        NotAsked ->
+            div [] [ text "not asked" ]
+
+        Loading ->
+            div [] [ text "loading..." ]
+
+        Success error ->
+            viewError error
+
+        Failure e ->
+            div [] [ text "failed" ]
+
+
+generateButton : Model -> Html Msg
+generateButton model =
+    button [ onClick GenerateClicked ] [ text "Generate" ]
