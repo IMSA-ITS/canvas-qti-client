@@ -3,11 +3,15 @@ module Main exposing (Model)
 -- import Json.Decode as D
 
 import Browser
+import Bytes exposing (Bytes)
+import Bytes.Decode
+import Bytes.Encode
 import Debounce
+import File.Download
 import Html exposing (Html, button, div, text)
 import Html.Attributes exposing (class, cols, rows)
 import Html.Events exposing (onClick, onInput)
-import Http
+import Http exposing (Error(..), Response(..))
 import Json.Decode as D
 import RemoteData exposing (RemoteData(..), WebData, fromResult)
 
@@ -29,6 +33,7 @@ type Msg
     = TextChanged String
     | DebouncerMsg (Debounce.Msg String)
     | GotQTI (WebData String)
+    | GotGenerated (Result Http.Error Bytes)
     | GenerateClicked
 
 
@@ -68,6 +73,14 @@ update msg model =
 
         GenerateClicked ->
             ( model, requestGenerate model.settledText )
+
+        GotGenerated result ->
+            case result of
+                Ok bytes ->
+                    ( model, downloadZip bytes )
+
+                Err err ->
+                    ( model, Cmd.none )
 
 
 updateDebouncer : Debounce.Msg String -> Model -> ( Model, Cmd Msg )
@@ -113,7 +126,7 @@ requestGenerate text =
         { method = "POST"
         , url = qtiServerUrl ++ "?generate"
         , body = Http.stringBody "text/plain" text
-        , expect = Http.expectJson (fromResult >> GotQTI) decodeQTIResponse
+        , expect = Http.expectBytesResponse GotGenerated handleGenerateResponse
         , headers = []
         , timeout = Nothing
         , tracker = Nothing
@@ -123,6 +136,30 @@ requestGenerate text =
 decodeQTIResponse : D.Decoder String
 decodeQTIResponse =
     D.field "error" D.string
+
+
+handleGenerateResponse : Http.Response Bytes -> Result Http.Error Bytes
+handleGenerateResponse response =
+    case response of
+        BadUrl_ url ->
+            Err (BadUrl url)
+
+        Timeout_ ->
+            Err Timeout
+
+        NetworkError_ ->
+            Err NetworkError
+
+        BadStatus_ metadata _ ->
+            Err (BadStatus metadata.statusCode)
+
+        GoodStatus_ _ body ->
+            Ok body
+
+
+downloadZip : Bytes -> Cmd msg
+downloadZip bytes =
+    File.Download.bytes "qti.zip" "application/zip" bytes
 
 
 view : Model -> Browser.Document Msg
