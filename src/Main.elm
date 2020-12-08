@@ -21,8 +21,7 @@ type alias Flags =
 
 
 type alias Model =
-    { flags : Flags
-    , host : String
+    { host : String
     , rawText : String -- input from user
     , settledText : String -- debounced/settled input
     , debouncer : Debounce.Model String -- state of debounce
@@ -34,7 +33,7 @@ type Msg
     = OnInput Input
     | OnClick Button
     | OnResponse Response
-    | DebouncerMsg (Debounce.Msg String)
+    | OnDebounceEvent (Debounce.Msg String)
 
 
 type Input
@@ -62,8 +61,7 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { flags = flags
-      , host = D.decodeValue flagsDecoder flags |> Result.withDefault "http://localhost:8081"
+    ( { host = D.decodeValue flagsDecoder flags |> Result.withDefault "http://localhost:8081"
       , rawText = ""
       , settledText = ""
       , debouncer = Debounce.init 500 ""
@@ -87,13 +85,12 @@ update msg model =
         OnClick Generate ->
             ( { model | qtiError = Loading }, requestGenerate model.host model.settledText )
 
-        DebouncerMsg dmsg ->
+        OnDebounceEvent dmsg ->
             updateDebouncer dmsg model
 
         OnResponse (Validation error) ->
             ( { model | qtiError = error }, Cmd.none )
 
-        --GotGenerated result ->
         OnResponse (Generation result) ->
             case result of
                 Ok bytes ->
@@ -115,12 +112,12 @@ updateDebouncer dmsg model =
             ( { model | debouncer = debouncer_, settledText = text, qtiError = Loading }
             , Cmd.batch
                 [ requestQTI model.host text
-                , Cmd.map DebouncerMsg cmd
+                , Cmd.map OnDebounceEvent cmd
                 ]
             )
 
         Nothing ->
-            ( { model | debouncer = debouncer_ }, Cmd.map DebouncerMsg cmd )
+            ( { model | debouncer = debouncer_ }, Cmd.map OnDebounceEvent cmd )
 
 
 requestQTI : String -> String -> Cmd Msg
