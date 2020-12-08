@@ -72,7 +72,7 @@ update msg model =
             ( { model | qtiError = error }, Cmd.none )
 
         GenerateClicked ->
-            ( model, requestGenerate model.settledText )
+            ( { model | qtiError = Loading }, requestGenerate model.settledText )
 
         GotGenerated result ->
             case result of
@@ -83,40 +83,30 @@ update msg model =
                     ( model, Cmd.none )
 
 
-
-{- When the input text settles, return command to request QTI generation -}
-
-
 updateDebouncer : Debounce.Msg String -> Model -> ( Model, Cmd Msg )
 updateDebouncer dmsg model =
+    -- When the input text settles, return command to request QTI generation
     let
         ( debouncer_, cmd, settledMaybe ) =
             Debounce.update dmsg model.debouncer
-
-        debouncedInput_ =
-            settledMaybe |> Maybe.withDefault model.settledText
-
-        requestCmd =
-            settledMaybe |> Maybe.map requestQTI |> Maybe.withDefault Cmd.none
     in
-    ( { model | debouncer = debouncer_, settledText = debouncedInput_ }
-    , Cmd.batch
-        [ Cmd.map DebouncerMsg cmd
-        , requestCmd
-        ]
-    )
+    case settledMaybe of
+        Just text ->
+            ( { model | debouncer = debouncer_, settledText = text, qtiError = Loading }
+            , Cmd.batch [ requestQTI text, Cmd.map DebouncerMsg cmd ]
+            )
+
+        Nothing ->
+            ( { model | debouncer = debouncer_ }, Cmd.map DebouncerMsg cmd )
 
 
 qtiServerUrl =
     "http://127.0.0.1:5000/validate"
 
 
-
-{- request validation only -}
-
-
 requestQTI : String -> Cmd Msg
 requestQTI text =
+    -- request validation of the input text
     Http.request
         { method = "POST"
         , url = qtiServerUrl
@@ -128,12 +118,9 @@ requestQTI text =
         }
 
 
-
--- Request to generate and download zip archive of QTI content
-
-
 requestGenerate : String -> Cmd Msg
 requestGenerate text =
+    -- Request to generate and download zip archive of QTI content
     Http.request
         { method = "POST"
         , url = qtiServerUrl ++ "?generate"
@@ -212,7 +199,7 @@ viewResponse response =
             div [] [ text "not asked" ]
 
         Loading ->
-            div [] [ text "loading..." ]
+            div [] [ text "validating..." ]
 
         Success error ->
             viewError error
@@ -222,5 +209,11 @@ viewResponse response =
 
 
 generateButton : Model -> Html Msg
-generateButton model =
-    button [ onClick GenerateClicked ] [ text "Generate" ]
+generateButton { qtiError } =
+    -- Display the Generate button only when there are no validation errors
+    case qtiError of
+        Success "" ->
+            button [ onClick GenerateClicked ] [ text "Generate" ]
+
+        _ ->
+            div [] []
