@@ -3,7 +3,7 @@ from string import Template
 with open("index.html.tmpl") as t:
     template = t.read()
 
-with open("env/auth") as f:
+with open("env/params") as f:
     params = f.read()
 
 s = Template(template)

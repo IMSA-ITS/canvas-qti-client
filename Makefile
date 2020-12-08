@@ -7,9 +7,9 @@ build: elm.js index.html
 elm.js: $(SRC)
 	$(ELM) make src/Main.elm --output=$@
 
-AUTHFILE = env/auth
+PARAMSFILE = env/params
 
-index.html: index.html.tmpl $(AUTHFILE)
+index.html: index.html.tmpl $(PARAMSFILE)
 	python3 mk_index.py > index.html
 
 watch:

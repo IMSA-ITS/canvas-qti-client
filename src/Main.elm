@@ -22,6 +22,7 @@ type alias Flags =
 
 type alias Model =
     { flags : Flags
+    , host : String
     , rawText : String -- input from user
     , settledText : String -- debounced/settled input
     , debouncer : Debounce.Model String -- state of debounce
@@ -30,11 +31,23 @@ type alias Model =
 
 
 type Msg
-    = TextChanged String
+    = OnInput Input
+    | OnClick Button
+    | OnResponse Response
     | DebouncerMsg (Debounce.Msg String)
-    | GotQTI (WebData String)
-    | GotGenerated (Result Http.Error Bytes)
-    | GenerateClicked
+
+
+type Input
+    = Text String
+
+
+type Button
+    = Generate
+
+
+type Response
+    = Validation (WebData String)
+    | Generation (Result Http.Error Bytes)
 
 
 main : Program Flags Model Msg
@@ -50,37 +63,44 @@ main =
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     ( { flags = flags
+      , host = D.decodeValue flagsDecoder flags |> Result.withDefault "http://localhost:8081"
       , rawText = ""
       , settledText = ""
-      , debouncer = Debounce.init 1000 ""
+      , debouncer = Debounce.init 500 ""
       , qtiError = NotAsked
       }
     , Cmd.none
     )
 
 
+flagsDecoder : D.Decoder String
+flagsDecoder =
+    D.field "qtihost" D.string
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case Debug.log "msg" msg of
-        TextChanged newText ->
+        OnInput (Text newText) ->
             { model | rawText = newText } |> updateDebouncer (Debounce.Change newText)
+
+        OnClick Generate ->
+            ( { model | qtiError = Loading }, requestGenerate model.host model.settledText )
 
         DebouncerMsg dmsg ->
             updateDebouncer dmsg model
 
-        GotQTI error ->
+        OnResponse (Validation error) ->
             ( { model | qtiError = error }, Cmd.none )
 
-        GenerateClicked ->
-            ( { model | qtiError = Loading }, requestGenerate model.settledText )
-
-        GotGenerated result ->
+        --GotGenerated result ->
+        OnResponse (Generation result) ->
             case result of
                 Ok bytes ->
                     ( model, downloadZip bytes )
 
                 Err err ->
-                    ( model, Cmd.none )
+                    ( { model | qtiError = Success "network error" }, Cmd.none )
 
 
 updateDebouncer : Debounce.Msg String -> Model -> ( Model, Cmd Msg )
@@ -93,39 +113,38 @@ updateDebouncer dmsg model =
     case settledMaybe of
         Just text ->
             ( { model | debouncer = debouncer_, settledText = text, qtiError = Loading }
-            , Cmd.batch [ requestQTI text, Cmd.map DebouncerMsg cmd ]
+            , Cmd.batch
+                [ requestQTI model.host text
+                , Cmd.map DebouncerMsg cmd
+                ]
             )
 
         Nothing ->
             ( { model | debouncer = debouncer_ }, Cmd.map DebouncerMsg cmd )
 
 
-qtiServerUrl =
-    "http://127.0.0.1:5000/validate"
-
-
-requestQTI : String -> Cmd Msg
-requestQTI text =
+requestQTI : String -> String -> Cmd Msg
+requestQTI host text =
     -- request validation of the input text
     Http.request
         { method = "POST"
-        , url = qtiServerUrl
+        , url = host ++ "/validate"
         , body = Http.stringBody "text/plain" text
-        , expect = Http.expectJson (fromResult >> GotQTI) decodeQTIResponse
+        , expect = Http.expectJson (fromResult >> (OnResponse << Validation)) decodeQTIResponse
         , headers = []
         , timeout = Nothing
         , tracker = Nothing
         }
 
 
-requestGenerate : String -> Cmd Msg
-requestGenerate text =
+requestGenerate : String -> String -> Cmd Msg
+requestGenerate host text =
     -- Request to generate and download zip archive of QTI content
     Http.request
         { method = "POST"
-        , url = qtiServerUrl ++ "?generate"
+        , url = host ++ "/generate"
         , body = Http.stringBody "text/plain" text
-        , expect = Http.expectBytesResponse GotGenerated handleGenerateResponse
+        , expect = Http.expectBytesResponse (OnResponse << Generation) handleGenerateResponse
         , headers = []
         , timeout = Nothing
         , tracker = Nothing
@@ -137,15 +156,12 @@ decodeQTIResponse =
     D.field "error" D.string
 
 
-
-{- Because we want the raw bytes from the response, we seem to need this custom
-   handler as there does not seem to be a Bytes.Decoder that is just the identity
-   function.
--}
-
-
 handleGenerateResponse : Http.Response Bytes -> Result Http.Error Bytes
 handleGenerateResponse response =
+    {- Because we want the raw bytes from the response, we seem to need this custom
+       handler as there does not seem to be a Bytes.Decoder that is just the identity
+       function.
+    -}
     case response of
         BadUrl_ url ->
             Err (BadUrl url)
@@ -173,11 +189,10 @@ view model =
     { title = "QTI Generator"
     , body =
         [ div []
-            [ Html.textarea [ onInput TextChanged, cols 80, rows 10 ] []
+            [ Html.textarea [ onInput (OnInput << Text), cols 80, rows 10 ] []
             , viewResponse model.qtiError
             , generateButton model
-
-            -- , div [] [ text (Debug.toString model) ]
+            , div [] [ text (Debug.toString model) ]
             ]
         ]
     }
@@ -205,7 +220,7 @@ viewResponse response =
             viewError error
 
         Failure e ->
-            div [] [ text "failed" ]
+            div [] [ text "network failure" ]
 
 
 generateButton : Model -> Html Msg
@@ -213,7 +228,7 @@ generateButton { qtiError } =
     -- Display the Generate button only when there are no validation errors
     case qtiError of
         Success "" ->
-            button [ onClick GenerateClicked ] [ text "Generate" ]
+            button [ onClick <| OnClick Generate ] [ text "Generate" ]
 
         _ ->
             div [] []
