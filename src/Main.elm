@@ -7,13 +7,16 @@ import Bytes exposing (Bytes)
 import Bytes.Decode
 import Bytes.Encode
 import Debounce
+import File exposing (File)
 import File.Download
+import File.Select
 import Html exposing (Html, button, div, text)
-import Html.Attributes exposing (class, cols, rows)
+import Html.Attributes exposing (class, cols, placeholder, rows, value)
 import Html.Events exposing (onClick, onInput)
 import Http exposing (Error(..), Response(..))
 import Json.Decode as D
 import RemoteData exposing (RemoteData(..), WebData, fromResult)
+import Task
 
 
 type alias Flags =
@@ -33,6 +36,8 @@ type Msg
     = OnInput Input
     | OnClick Button
     | OnResponse Response
+    | FileSelected File
+    | FileLoaded String
     | OnDebounceEvent (Debounce.Msg String)
 
 
@@ -42,6 +47,7 @@ type Input
 
 type Button
     = Generate
+    | Open
 
 
 type Response
@@ -85,6 +91,9 @@ update msg model =
         OnClick Generate ->
             ( { model | qtiError = Loading }, requestGenerate model.host model.settledText )
 
+        OnClick Open ->
+            ( model, File.Select.file [ "text/plain", "text/markdown" ] FileSelected )
+
         OnDebounceEvent dmsg ->
             updateDebouncer dmsg model
 
@@ -98,6 +107,12 @@ update msg model =
 
                 Err err ->
                     ( { model | qtiError = Success "network error" }, Cmd.none )
+
+        FileSelected file ->
+            ( model, Task.perform FileLoaded (File.toString file) )
+
+        FileLoaded contents ->
+            ( { model | rawText = contents, settledText = contents }, Cmd.none )
 
 
 updateDebouncer : Debounce.Msg String -> Model -> ( Model, Cmd Msg )
@@ -186,9 +201,10 @@ view model =
     { title = "QTI Generator"
     , body =
         [ div []
-            [ Html.textarea [ onInput (OnInput << Text), cols 80, rows 10 ] []
+            [ Html.textarea [ onInput (OnInput << Text), cols 80, rows 10, value model.rawText ] []
             , viewResponse model.qtiError
             , generateButton model
+            , openButton
             , div [] [ text (Debug.toString model) ]
             ]
         ]
@@ -229,3 +245,8 @@ generateButton { qtiError } =
 
         _ ->
             div [] []
+
+
+openButton : Html Msg
+openButton =
+    button [ onClick <| OnClick Open ] [ text "Open file" ]
