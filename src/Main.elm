@@ -277,8 +277,7 @@ openButton =
 dropArea : Bool -> Html Msg
 dropArea hovering =
     div
-        [ style "width" "480px"
-        , style "height" "100px"
+        [ class "dropArea"
         , style "border"
             (if hovering then
                 "6px dashed purple"
