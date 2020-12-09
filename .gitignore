@@ -1,4 +1,7 @@
 elm-stuff/
 elm.js
+elm.min.js
 env
 index.html
+node_modules
+package-lock.json

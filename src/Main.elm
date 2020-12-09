@@ -93,7 +93,8 @@ flagsDecoder =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case Debug.log "msg" msg of
+    --case Debug.log "msg" msg of
+    case msg of
         OnInput (Text newText) ->
             { model | rawText = newText } |> updateDebouncer (Debounce.Change newText)
 
@@ -227,7 +228,7 @@ view model =
             , generateButton model
             , openButton
             , dropArea model.dragHover
-            , div [] [ text (Debug.toString model) ]
+            --, div [] [ text (Debug.toString model) ]
             ]
         ]
     }
@@ -276,6 +277,7 @@ openButton =
 
 dropArea : Bool -> Html Msg
 dropArea hovering =
+    -- See example at https://elm-lang.org/examples/drag-and-drop
     div
         [ class "dropArea"
         , style "border"
