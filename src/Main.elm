@@ -10,9 +10,9 @@ import Debounce
 import File exposing (File)
 import File.Download
 import File.Select
-import Html exposing (Html, button, div, text)
-import Html.Attributes exposing (class, cols, placeholder, rows, value)
-import Html.Events exposing (onClick, onInput)
+import Html exposing (Attribute, Html, button, div, text)
+import Html.Attributes exposing (class, cols, rows, style, value)
+import Html.Events exposing (onClick, onInput, preventDefaultOn)
 import Http exposing (Error(..), Response(..))
 import Json.Decode as D
 import RemoteData exposing (RemoteData(..), WebData, fromResult)
@@ -29,6 +29,7 @@ type alias Model =
     , settledText : String -- debounced/settled input
     , debouncer : Debounce.Model String -- state of debounce
     , qtiError : WebData String -- error from QTI generation
+    , dragHover : Bool
     }
 
 
@@ -36,6 +37,7 @@ type Msg
     = OnInput Input
     | OnClick Button
     | OnResponse Response
+    | OnDrag DragEvent
     | FileSelected File
     | FileLoaded String
     | OnDebounceEvent (Debounce.Msg String)
@@ -55,6 +57,12 @@ type Response
     | Generation (Result Http.Error Bytes)
 
 
+type DragEvent
+    = Enter
+    | Leave
+    | Drop File (List File)
+
+
 main : Program Flags Model Msg
 main =
     Browser.document
@@ -72,6 +80,7 @@ init flags =
       , settledText = ""
       , debouncer = Debounce.init 500 ""
       , qtiError = NotAsked
+      , dragHover = False
       }
     , Cmd.none
     )
@@ -93,6 +102,18 @@ update msg model =
 
         OnClick Open ->
             ( model, File.Select.file [ "text/plain", "text/markdown" ] FileSelected )
+
+        OnDrag dragEvent ->
+            case dragEvent of
+                Enter ->
+                    ( { model | dragHover = True }, Cmd.none )
+
+                Leave ->
+                    ( { model | dragHover = False }, Cmd.none )
+
+                Drop file files ->
+                    -- we only handle first file dropped (TODO?)
+                    ( { model | dragHover = False }, Task.perform FileLoaded (File.toString file) )
 
         OnDebounceEvent dmsg ->
             updateDebouncer dmsg model
@@ -205,6 +226,7 @@ view model =
             , viewResponse model.qtiError
             , generateButton model
             , openButton
+            , dropArea model.dragHover
             , div [] [ text (Debug.toString model) ]
             ]
         ]
@@ -250,3 +272,42 @@ generateButton { qtiError } =
 openButton : Html Msg
 openButton =
     button [ onClick <| OnClick Open ] [ text "Open file" ]
+
+
+dropArea : Bool -> Html Msg
+dropArea hovering =
+    div
+        [ style "width" "480px"
+        , style "height" "100px"
+        , style "border"
+            (if hovering then
+                "6px dashed purple"
+
+             else
+                "6px dashed #ccc"
+            )
+        , hijackOn "dragenter" (D.succeed (OnDrag Enter))
+        , hijackOn "dragover" (D.succeed (OnDrag Enter))
+        , hijackOn "dragleave" (D.succeed (OnDrag Leave))
+        , hijackOn "drop" dropDecoder
+        ]
+        [ text "drop file here"
+        ]
+
+
+hijackOn : String -> D.Decoder msg -> Attribute msg
+hijackOn event decoder =
+    let
+        hijack msg =
+            ( msg, True )
+    in
+    preventDefaultOn event (D.map hijack decoder)
+
+
+dropDecoder : D.Decoder Msg
+dropDecoder =
+    let
+        tag file files =
+            OnDrag (Drop file files)
+    in
+    D.at [ "dataTransfer", "files" ] (D.oneOrMore tag File.decoder)
